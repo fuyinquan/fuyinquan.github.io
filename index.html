@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>720全景漫游</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.css"/>
+<script src="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:Microsoft Yahei,sans-serif;}
+body{background:#000;color:#fff;overflow:hidden;}
+audio{display:none;}
+/*顶部导航栏*/
+.topbar{position:absolute;top:0;left:0;width:100%;height:56px;background:rgba(0,0,0,0.65);z-index:200;display:flex;align-items:center;padding:0 16px;gap:8px;}
+.top-title h1{font-size:18px;}
+.top-buttons{margin-left:auto;display:flex;gap:6px;}
+.top-buttons button{padding:6px 10px;border:none;border-radius:4px;cursor:pointer;font-size:14px;}
+#adminBtn{background:#ff7d00;color:#fff;}
+#shareBtn{background:#28a745;color:#fff;}
+#musicBtn{background:#0088cc;color:#fff;}
+/*全景容器*/
+#panorama{width:100vw;height:100vh;}
+/*加载提示*/
+.load-tip{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:500;font-size:20px;}
+/*左侧场景列表*/
+.scene-panel{position:absolute;left:12px;top:70px;background:rgba(0,0,0,0.55);border-radius:8px;padding:10px;z-index:100;max-width:170px;}
+.scene-item{padding:7px 10px;cursor:pointer;border-radius:4px;margin:4px 0;}
+.scene-item.active{background:#409eff;}
+/*简介面板 右侧*/
+.info-panel{position:absolute;right:12px;top:70px;width:280px;background:rgba(0,0,0,0.65);border-radius:8px;padding:14px;z-index:100;}
+.info-panel h3{margin-bottom:8px;font-size:16px;}
+.info-desc{font-size:14px;line-height:1.6;color:#eee;max-height:220px;overflow:auto;}
+/*右下角平面地图*/
+.map-panel{position:absolute;right:12px;bottom:70px;width:220px;height:180px;background:rgba(0,0,0,0.65);border-radius:8px;padding:8px;z-index:100;}
+.map-canvas{width:100%;height:100%;background:#333;border-radius:4px;position:relative;}
+.map-point{width:12px;height:12px;background:#409eff;border-radius:50%;position:absolute;transform:translate(-50%,-50%);cursor:pointer;}
+.map-point.active{background:#ff4444;}
+/*底部控制栏*/
+.control-bar{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.6);padding:8px 14px;border-radius:99px;z-index:100;display:flex;gap:6px;flex-wrap:wrap;justify-content:center;}
+.control-bar button{background:none;border:none;color:#fff;font-size:14px;padding:4px 8px;cursor:pointer;white-space:nowrap;}
+/*编辑后台面板*/
+.admin-panel{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:90%;max-width:520px;height:85vh;background:rgba(0,0,0,0.88);border-radius:10px;padding:20px;z-index:300;overflow:auto;display:none;}
+.admin-open .admin-panel{display:block;}
+.admin-panel h3{margin:12px 0 6px;font-size:16px;border-bottom:1px solid #444;padding-bottom:6px;}
+.admin-panel label{display:block;margin-top:10px;font-size:13px;}
+.admin-panel input,.admin-panel textarea{width:100%;padding:8px;border-radius:4px;border:none;margin-top:4px;color:#222;}
+.admin-panel textarea{resize:auto;}
+.admin-panel button{margin-top:8px;padding:7px 10px;border:none;border-radius:4px;background:#409eff;color:#fff;cursor:pointer;margin-right:6px;}
+.del-btn{background:#f56c6c;}
+.export-btn{background:#28a745;}
+/*弹窗提示*/
+.tip-toast{position:absolute;bottom:120px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);padding:8px 14px;border-radius:6px;z-index:400;display:none;}
+/*移动端适配*/
+@media(max-width:768px){
+    .scene-panel{max-width:120px;font-size:13px;top:64px;}
+    .info-panel{width:calc(100% - 20px);left:10px;right:auto;top:140px;}
+    .map-panel{width:160px;height:130px;}
+    .admin-panel{width:94%;height:80vh;}
+}
+.hide{display:none !important;}
+</style>
+</head>
+<body>
+<audio id="bgMusic" loop preload="auto">
+<input type="file" id="fileInput" accept=".json" style="display:none;">
+<div class="load-tip" id="loadTip">全景加载中...</div>
+<div class="tip-toast" id="toast"></div>
+
+<!--顶部栏-->
+<div class="topbar">
+    <div class="top-title">
+        <h1 id="projName">720全景漫游项目</h1>
+    </div>
+    <div class="top-buttons">
+        <button id="musicBtn">🔊背景音乐</button>
+        <button id="shareBtn">📤分享</button>
+        <button id="adminBtn">📋编辑后台</button>
+    </div>
+</div>
+
+<!--左侧场景列表（切换全景）-->
+<div class="scene-panel" id="sceneList"></div>
+
+<!--简介面板-->
+<div class="info-panel">
+    <h3>项目简介</h3>
+    <div class="info-desc" id="infoDesc">欢迎参观全景漫游项目，可点击热点在不同空间漫游，右下角平面图快速切换场景。</div>
+</div>
+
+<!--全景主容器-->
+<div id="panorama"></div>
+
+<!--右下角平面地图-->
+<div class="map-panel">
+    <div class="map-canvas" id="mapCanvas"></div>
+</div>
+
+<!--底部控制按钮-->
+<div class="control-bar">
+    <button id="autoRotateBtn">自动旋转</button>
+    <button id="resetBtn">重置视角</button>
+    <button id="fullscreenBtn">全屏切换</button>
+    <button id="compassBtn">罗盘开关</button>
+    <button id="getHotPosBtn">🎯拾取热点坐标</button>
+</div>
+
+<!--编辑后台弹窗-->
+<div class="admin-panel" id="adminPanel">
+    <h3>项目基础信息</h3>
+    <label>项目名称</label>
+    <input id="inputProjName">
+    <label>项目简介</label>
+    <textarea id="inputDesc" rows="4"></textarea>
+    <label>背景音乐地址mp3</label>
+    <input id="inputMusicUrl">
+    <button id="saveBaseInfo">保存基础信息</button>
+
+    <h3>全景场景管理（一张全景=一个场景）</h3>
+    <label>场景ID(英文，不可重复)</label>
+    <input id="sceneIdInput">
+    <label>场景显示名称</label>
+    <input id="sceneNameInput">
+    <label>全景图片地址（URL）</label>
+    <input id="panUrlInput">
+    <button id="addSceneBtn">➕添加全景场景</button>
+    <button class="del-btn" id="delSceneBtn">🗑删除当前场景</button>
+
+    <h3>热点配置 格式：yaw,pitch,文字,目标场景ID</h3>
+    <textarea id="hotspotInput" rows="5"></textarea>
+    <button id="saveHotBtn">保存热点</button>
+
+    <h3>平面地图点位：X,Y,场景ID</h3>
+    <textarea id="mapPointInput" rows="4"></textarea>
+    <button id="saveMapBtn">保存地图点位</button>
+
+    <h3>项目备份</h3>
+    <button class="export-btn" id="exportBtn">导出JSON</button>
+    <button id="importBtn">导入JSON</button>
+    <button class="del-btn" id="closeAdmin">关闭后台</button>
+</div>
+
+<script>
+let viewer;
+let editAdmin = false;
+let currentSceneId = "";
+let projectData = {};
+const fileInput = document.getElementById("fileInput");
+const bgMusic = document.getElementById("bgMusic");
+let musicPlay = false;
+const loadTip = document.getElementById("loadTip");
+
+//强制清除旧缓存，防止旧配置残留
+localStorage.removeItem("pan_project");
+
+//初始化项目
+projectData = {
+    projName:"720全景漫游项目",
+    desc:"欢迎参观全景漫游项目，可点击热点在不同空间漫游，右下角平面图快速切换场景。",
+    musicUrl:"",
+    scenes:{
+        scene1:{
+            name:"场景1",
+            panorama:"https://pannellum.org/images/alma.jpg",
+            hotSpots:[
+                {"yaw":110,"pitch":-2,"type":"scene","text":"前往场景2","sceneId":"scene2"}
+            ],
+            mapXY:[40,50]
+        },
+        scene2:{
+            name:"场景2",
+            panorama:"https://pannellum.org/images/bma-1.jpg",
+            hotSpots:[
+                {"yaw":-60,"pitch":0,"type":"scene","text":"返回场景1","sceneId":"scene1"}
+            ],
+            mapXY:[120,70]
+        }
+    },
+    mapPoints:`40,50,scene1
+120,70,scene2`
+};
+saveProject();
+
+//保存项目
+function saveProject(){
+    localStorage.setItem("pan_project",JSON.stringify(projectData));
+}
+//提示弹窗
+function showToast(msg){
+    const t = document.getElementById("toast");
+    t.innerText = msg;
+    t.style.display="block";
+    setTimeout(()=>t.style.display="none",2200);
+}
+
+//背景音乐控制
+const musicBtn = document.getElementById("musicBtn");
+musicBtn.onclick = async ()=>{
+    if(!projectData.musicUrl){showToast("请在后台填入mp3音乐地址");return;}
+    if(!musicPlay){
+        bgMusic.src = projectData.musicUrl;
+        await bgMusic.play();
+        musicPlay = true;
+        musicBtn.innerText="🔇关闭音乐";
+    }else{
+        bgMusic.pause();
+        musicPlay = false;
+        musicBtn.innerText="🔊背景音乐";
+    }
+}
+
+//分享功能
+document.getElementById("shareBtn").onclick = async ()=>{
+    const shareData = {title:projectData.projName,text:projectData.desc,url:window.location.href};
+    if(navigator.share){
+        try{await navigator.share(shareData);showToast("分享成功");}catch(err){
+            navigator.clipboard.writeText(window.location.href);
+            showToast("链接已复制！");
+        }
+    }else{
+        navigator.clipboard.writeText(window.location.href);
+        showToast("链接已复制，直接发给好友");
+    }
+}
+
+//后台开关
+const adminPanel = document.getElementById("adminPanel");
+const adminBtn = document.getElementById("adminBtn");
+document.getElementById("closeAdmin").onclick = ()=>{editAdmin=false;document.body.classList.remove("admin-open");}
+adminBtn.onclick = ()=>{
+    editAdmin = !editAdmin;
+    document.body.classList.toggle("admin-open",editAdmin);
+    adminBtn.innerText = editAdmin ? "关闭后台" : "📋编辑后台";
+    if(editAdmin) fillAdminForm();
+}
+
+//渲染左侧场景列表
+function renderSceneList(){
+    const wrap = document.getElementById("sceneList");
+    wrap.innerHTML="";
+    Object.keys(projectData.scenes).forEach(sid=>{
+        const s = projectData.scenes[sid];
+        const div = document.createElement("div");
+        div.className = "scene-item"+(sid===currentSceneId?" active":"");
+        div.innerText = s.name;
+        div.onclick = ()=>loadScene(sid);
+        wrap.appendChild(div);
+    })
+}
+
+//加载全景场景
+function loadScene(sceneId){
+    currentSceneId = sceneId;
+    const s = projectData.scenes[sceneId];
+    if(viewer) viewer.destroy();
+    loadTip.style.display = "block";
+    viewer = pannellum.viewer('panorama',{
+        type:"equirectangular",
+        panorama:s.panorama,
+        autoLoad:true,
+        autoRotate:0,
+        showControls:true,
+        compass:true,
+        hotSpots:s.hotSpots,
+        minHfov:30,
+        maxHfov:120
+    });
+    viewer.on("load",()=>{
+        loadTip.style.display = "none";
+    });
+    viewer.on("error",()=>{
+        loadTip.innerText = "全景图片加载失败，请检查图片链接";
+    });
+    fillAdminForm();
+    renderSceneList();
+    renderMapPoints();
+}
+
+//填充后台表单
+function fillAdminForm(){
+    document.getElementById("inputProjName").value = projectData.projName;
+    document.getElementById("inputDesc").value = projectData.desc;
+    document.getElementById("inputMusicUrl").value = projectData.musicUrl;
+    const s = projectData.scenes[currentSceneId];
+    document.getElementById("sceneIdInput").value = currentSceneId;
+    document.getElementById("sceneNameInput").value = s.name;
+    document.getElementById("panUrlInput").value = s.panorama;
+    let hsText = "";
+    s.hotSpots.forEach(h=>{
+        hsText += `${h.yaw},${h.pitch},${h.text},${h.sceneId||""}\n`;
+    })
+    document.getElementById("hotspotInput").value = hsText.trim();
+    document.getElementById("mapPointInput").value = projectData.mapPoints;
+}
+
+//保存基础信息（名称、简介、音乐）
+document.getElementById("saveBaseInfo").onclick = function(){
+    projectData.projName = document.getElementById("inputProjName").value.trim();
+    projectData.desc = document.getElementById("inputDesc").value.trim();
+    projectData.musicUrl = document.getElementById("inputMusicUrl").value.trim();
+    document.getElementById("projName").innerText = projectData.projName;
+    document.getElementById("infoDesc").innerText = projectData.desc;
+    saveProject();
+    showToast("基础信息保存成功");
+}
+
+//添加全景场景
+document.getElementById("addSceneBtn").onclick = function(){
+    const sid = document.getElementById("sceneIdInput").value.trim();
+    const sname = document.getElementById("sceneNameInput").value.trim();
+    const purl = document.getElementById("panUrlInput").value.trim();
+    if(!sid||!sname||!purl){showToast("场景ID、名称、全景图地址不能为空");return;}
+    if(projectData.scenes[sid]){showToast("场景ID重复！");return;}
+    projectData.scenes[sid]={name:sname,panorama:purl,hotSpots:[],mapXY:[80,80]}
+    saveProject();
+    renderSceneList();
+    loadScene(sid);
+    showToast("全景场景添加成功");
+}
+
+//删除场景
+document.getElementById("delSceneBtn").onclick = function(){
+    if(Object.keys(projectData.scenes).length<=1){showToast("至少保留1个全景场景");return;}
+    delete projectData.scenes[currentSceneId];
+    saveProject();
+    const newScene = Object.keys(projectData.scenes)[0];
+    loadScene(newScene);
+    showToast("场景已删除");
+}
+
+//保存热点
+document.getElementById("saveHotBtn").onclick = function(){
+    const txt = document.getElementById("hotspotInput").value.trim();
+    const hotSpots = [];
+    txt.split("\n").forEach(line=>{
+        if(!line)return;
+        const arr = line.split(",");
+        hotSpots.push({
+            yaw:Number(arr[0]),
+            pitch:Number(arr[1]),
+            text:arr[2]||"",
+            type:arr[3]?"scene":"info",
+            sceneId:arr[3]||null
+        })
+    })
+    projectData.scenes[currentSceneId].hotSpots = hotSpots;
+    saveProject();
+    loadScene(currentSceneId);
+    showToast("热点保存成功");
+}
+
+//保存平面地图点位
+document.getElementById("saveMapBtn").onclick = function(){
+    const txt = document.getElementById("mapPointInput").value.trim();
+    projectData.mapPoints = txt;
+    saveProject();
+    renderMapPoints();
+    showToast("地图点位保存成功");
+}
+
+//渲染右下角平面图点位
+function renderMapPoints(){
+    const canvas = document.getElementById("mapCanvas");
+    canvas.innerHTML="";
+    const lines = projectData.mapPoints.split("\n");
+    lines.forEach(line=>{
+        if(!line)return;
+        const [x,y,sid] = line.split(",");
+        const dot = document.createElement("div");
+        dot.className = "map-point"+(sid===currentSceneId?" active":"");
+        dot.style.left = x+"px";
+        dot.style.top = y+"px";
+        dot.onclick = ()=>loadScene(sid);
+        canvas.appendChild(dot);
+    })
+}
+
+//拾取热点坐标
+document.getElementById("getHotPosBtn").onclick = function(){
+    if(!viewer)return;
+    const yaw = viewer.getYaw().toFixed(2);
+    const pitch = viewer.getPitch().toFixed(2);
+    showToast(`坐标：${yaw},${pitch}`);
+}
+
+//底部控制按钮
+document.getElementById("autoRotateBtn").onclick = function(){
+    const ar = viewer.getAutoRotate();
+    if(ar===0){viewer.setAutoRotate(-1.5);this.innerText="停止旋转";}
+    else{viewer.setAutoRotate(0);this.innerText="自动旋转";}
+}
+document.getElementById("resetBtn").onclick = ()=>viewer.lookAt(0,0,90);
+document.getElementById("fullscreenBtn").onclick = function(){
+    const wrap = document.getElementById("panorama");
+    if(!document.fullscreenElement) wrap.requestFullscreen();
+    else document.exitFullscreen();
+}
+document.getElementById("compassBtn").onclick = function(){
+    const v = viewer;
+    const c = v.getOptions().compass;
+    v.setOptions({compass:!c});
+    this.innerText = c?"开启罗盘":"关闭罗盘";
+}
+
+//导出JSON
+document.getElementById("exportBtn").onclick = function(){
+    const jsonStr = JSON.stringify(projectData,null,2);
+    const blob = new Blob([jsonStr],{type:"application/json"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "全景项目.json";
+    a.click();
+}
+//导入JSON
+document.getElementById("importBtn").onclick = ()=>fileInput.click();
+fileInput.onchange = function(e){
+    const f = e.target.files[0];
+    if(!f)return;
+    const reader = new FileReader();
+    reader.onload = function(ev){
+        try{
+            projectData = JSON.parse(ev.target.result);
+            saveProject();
+            document.getElementById("projName").innerText = projectData.projName;
+            document.getElementById("infoDesc").innerText = projectData.desc;
+            renderSceneList();
+            renderMapPoints();
+            loadScene(Object.keys(projectData.scenes)[0]);
+            showToast("项目导入成功！");
+        }catch(err){showToast("JSON解析失败");}
+    }
+    reader.readAsText(f);
+}
+
+window.onload = function(){
+    document.getElementById("projName").innerText = projectData.projName;
+    document.getElementById("infoDesc").innerText = projectData.desc;
+    renderSceneList();
+    renderMapPoints();
+    const firstScene = Object.keys(projectData.scenes)[0];
+    loadScene(firstScene);
+}
+</script>
+</body>
+</html>
+
